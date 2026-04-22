@@ -1,50 +1,31 @@
 import json
-from datetime import datetime
+import os
 
-FILE = "players.json"
+FILE_PATH = "players.json"
 
-def load_players():
-    try:
-        with open(FILE, "r") as f:
+def load_data():
+    if not os.path.exists(FILE_PATH):
+        return {}
+    with open(FILE_PATH, "r") as f:
+        try:
             return json.load(f)
-    except:
-        return []
+        except:
+            return {}
 
-def save_session(player_data, analysis):
-    players = load_players()
+def save_data(data):
+    with open(FILE_PATH, "w") as f:
+        json.dump(data, f, indent=4)
 
-    name = player_data.get("name", "").strip()
+def save_player_data(player_name, result):
+    data = load_data()
 
-    if not name:
-        return  # avoid saving empty player
+    if player_name not in data:
+        data[player_name] = []
 
-    # find existing player
-    player = next((p for p in players if p["name"] == name), None)
+    data[player_name].append(result)
 
-    # ✅ SAFE TYPE CONVERSION (FIX FOR YOUR ERROR)
-    session = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "arm_angle": float(analysis.get("arm_angle", 0)),
-        "knee_angle": float(analysis.get("knee_angle", 0)),
-        "arm_type": str(analysis.get("arm_type", "")),
-        "knee_risk": bool(analysis.get("knee_risk", False)),
-        "shoulder_risk": bool(analysis.get("shoulder_risk", False))
-    }
+    save_data(data)
 
-    if player:
-        player.setdefault("sessions", []).append(session)
-    else:
-        new_player = {
-            "name": name,
-            "age": player_data.get("age", 0),
-            "height": player_data.get("height", 0),
-            "weight": player_data.get("weight", 0),
-            "sessions": [session]
-        }
-        players.append(new_player)
-
-    with open(FILE, "w") as f:
-        json.dump(players, f, indent=4)
-
-def get_players():
-    return load_players()
+def get_player_history(player_name):
+    data = load_data()
+    return data.get(player_name, [])

@@ -1,217 +1,82 @@
 import streamlit as st
-import tempfile
-from analyzer import analyze_video
-from player_store import save_session, get_players
+import requests
 import matplotlib.pyplot as plt
+from player_store import save_player_data, get_player_history
 
-st.set_page_config(page_title="Cricket AI Analyzer", layout="wide")
+st.title("🏏 Bowling Analysis System")
 
-st.title("🏏 Cricket Bowling Performance System")
+# ---------------------------
+# PLAYER INPUT
+# ---------------------------
+player_name = st.text_input("Enter Player Name")
 
-# -------- LOAD PLAYERS --------
-players = get_players()
-player_names = [p.get("name", "") for p in players if p.get("name")]
+uploaded_file = st.file_uploader("Upload Bowling Video", type=["mp4", "avi", "mov"])
 
-selected_player = st.selectbox("Select Player", ["New Player"] + player_names)
+if st.button("Analyze Bowling Action"):
 
-if selected_player == "New Player":
-    player = st.text_input("Player Name")
-    age = st.number_input("Age", 10, 50)
-    height = st.number_input("Height (cm)")
-    weight = st.number_input("Weight (kg)")
-else:
-    player = selected_player
-    st.write(f"Analyzing Player: {player}")
-    age, height, weight = 0, 0, 0
+    if uploaded_file is not None and player_name != "":
+        with open("temp_video.mp4", "wb") as f:
+            f.write(uploaded_file.read())
 
-camera = st.selectbox("Camera Angle", ["Side View", "Rear View"])
-video = st.file_uploader("Upload Bowling Video", type=["mp4"])
+        st.info("Processing... Please wait")
 
-# -------- ANALYSIS --------
-if video:
-    temp = tempfile.NamedTemporaryFile(delete=False)
-    temp.write(video.read())
-    video_path = temp.name
+        try:
+            # CALL FASTAPI BACKEND
+            files = {"file": open("temp_video.mp4", "rb")}
+            response = requests.post("http://127.0.0.1:8000/analyze", files=files)
 
-    st.video(video)
+            result = response.json()
 
-    if st.button("Analyze Bowling"):
+            st.success("Analysis Complete")
 
-        if not player or player.strip() == "":
-            st.error("Enter player name")
-            st.stop()
+            # ---------------------------
+            # SHOW RESULTS
+            # ---------------------------
+            st.subheader("📊 Results")
+            st.json(result)
 
-        result = analyze_video(video_path, camera)
+            # ---------------------------
+            # SAVE PLAYER DATA
+            # ---------------------------
+            save_player_data(player_name, result)
 
-        if not result or "error" in result:
-            st.error(result.get("error", "Analysis failed"))
-        else:
-            save_session(
-                {
-                    "name": player,
-                    "age": age,
-                    "height": height,
-                    "weight": weight
-                },
-                result
-            )
+        except Exception as e:
+            st.error(f"Connection error: {e}")
 
-            # =========================
-            # 🎯 PERFORMANCE SCORE (FIXED)
-            # =========================
-            arm = result.get("arm_angle", 0)
-            knee = result.get("knee_angle", 0)
+# ---------------------------
+# PLAYER HISTORY
+# ---------------------------
+st.header("📁 Player History")
 
-            score = 0
+if player_name != "":
+    history = get_player_history(player_name)
 
-            # Arm scoring
-            if arm >= 185:
-                score += 3
-            elif arm >= 170:
-                score += 2
-            else:
-                score += 1
+    if len(history) > 0:
 
-            # Knee scoring
-            if knee >= 165:
-                score += 3
-            elif knee >= 145:
-                score += 2
-            else:
-                score += 1
+        arm_angles = []
+        knee_angles = []
 
-            # Risk scoring
-            if not result.get("knee_risk"):
-                score += 2
-            if not result.get("shoulder_risk"):
-                score += 2
+        for session in history:
+            arm_angles.append(session.get("arm_angle", 0))
+            knee_angles.append(session.get("knee_angle", 0))
 
-            score = min(round(score, 1), 10)
+        # ---------------------------
+        # GRAPH
+        # ---------------------------
+        st.subheader("📈 Performance Trends")
 
-            # =========================
-            # 🚨 ISSUE DETECTION (IMPROVED)
-            # =========================
-            issues = []
+        fig, ax = plt.subplots()
 
-            if knee < 145:
-                issues.append(("High", "Front knee collapsing"))
+        ax.plot(arm_angles, marker='o', label="Arm Angle")
+        ax.plot(knee_angles, marker='o', label="Knee Angle")
 
-            if arm < 170:
-                issues.append(("Medium", "Low arm release"))
+        ax.set_xlabel("Session")
+        ax.set_ylabel("Angle")
+        ax.set_title("Performance Trend")
 
-            if result.get("consistency") == "Inconsistent action":
-                issues.append(("Medium", "Inconsistent bowling action"))
+        ax.legend()
 
-            # Sort by priority
-            issues_sorted = sorted(issues, key=lambda x: x[0] == "Medium")
+        st.pyplot(fig)
 
-            main_issue = issues_sorted[0][1] if issues_sorted else "No major issue"
-
-            # =========================
-            # 📊 REPORT OUTPUT
-            # =========================
-            st.header("📊 Performance Report")
-
-            st.subheader(f"Overall Score: {score} / 10")
-
-            st.write("### 🚨 Main Issue")
-            st.write(main_issue)
-
-            st.write("### 🎯 Priority Fix Order")
-            if issues_sorted:
-                for i, (_, issue) in enumerate(issues_sorted, 1):
-                    st.write(f"{i}. {issue}")
-            else:
-                st.write("Maintain current performance")
-
-            # =========================
-            # 📉 IMPACT ANALYSIS
-            # =========================
-            st.write("### 📉 Performance Impact")
-
-            if knee < 145:
-                st.write("• Reduced pace due to poor energy transfer")
-                st.write("• Loss of stability at crease")
-
-            if arm < 170:
-                st.write("• Reduced bounce and seam control")
-
-            if result.get("consistency") == "Inconsistent action":
-                st.write("• Line and length inconsistency")
-
-            # =========================
-            # ⚙ TECHNICAL FEEDBACK
-            # =========================
-            st.write("### ⚙ Technical Analysis")
-
-            st.write("**Arm Mechanics:**")
-            st.write(result.get("arm_feedback", "No data"))
-
-            st.write("**Front Leg Mechanics:**")
-            st.write(result.get("knee_feedback", "No data"))
-
-            # =========================
-            # 🏋 ACTION PLAN
-            # =========================
-            st.write("### 🏋 Action Plan")
-
-            if knee < 145:
-                st.write("• Squats – 3×10 reps")
-                st.write("• Lunges – 3×8 each leg")
-                st.write("• Front leg bracing drills")
-
-            if arm < 170:
-                st.write("• High-arm shadow bowling drills")
-                st.write("• Alignment training")
-
-            if result.get("consistency") == "Inconsistent action":
-                st.write("• Repeatable run-up drills")
-                st.write("• Target bowling sessions")
-
-            if not issues:
-                st.write("• Maintain technique")
-                st.write("• Focus on match simulation")
-
-            # =========================
-            # ⚠ RISK LEVEL
-            # =========================
-            st.write("### ⚠ Risk Level")
-
-            if result.get("knee_risk") or result.get("shoulder_risk"):
-                st.error("Medium to High Risk")
-            else:
-                st.success("Low Risk")
-
-# =========================
-# 📈 GRAPH DASHBOARD
-# =========================
-st.header("📈 Performance Trends")
-
-players = get_players()
-
-for p in players:
-    if p.get("name") == player:
-
-        sessions = p.get("sessions", [])
-
-        if len(sessions) >= 2:
-
-            arm = [s.get("arm_angle", 0) for s in sessions if s.get("arm_angle") is not None]
-            knee = [s.get("knee_angle", 0) for s in sessions if s.get("knee_angle") is not None]
-            labels = [s.get("date", "") for s in sessions]
-
-            if arm and knee:
-
-                fig1 = plt.figure()
-                plt.plot(labels[:len(arm)], arm, marker='o')
-                plt.xticks(rotation=45)
-                plt.title("Arm Angle Trend")
-                plt.tight_layout()
-                st.pyplot(fig1)
-
-                fig2 = plt.figure()
-                plt.plot(labels[:len(knee)], knee, marker='o')
-                plt.xticks(rotation=45)
-                plt.title("Knee Angle Trend")
-                plt.tight_layout()
-                st.pyplot(fig2)
+    else:
+        st.warning("No data found for this player")
