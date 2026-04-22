@@ -1,47 +1,51 @@
 import streamlit as st
-import requests
 import matplotlib.pyplot as plt
+import uuid
+import os
+
+from analyzer import analyze_video
 from player_store import save_player_data, get_player_history
 
 st.title("🏏 Bowling Analysis System")
 
 # ---------------------------
-# PLAYER INPUT
+# INPUT
 # ---------------------------
 player_name = st.text_input("Enter Player Name")
-
 uploaded_file = st.file_uploader("Upload Bowling Video", type=["mp4", "avi", "mov"])
 
+# ---------------------------
+# ANALYSIS
+# ---------------------------
 if st.button("Analyze Bowling Action"):
 
     if uploaded_file is not None and player_name != "":
-        with open("temp_video.mp4", "wb") as f:
+
+        temp_filename = f"temp_{uuid.uuid4()}.mp4"
+
+        with open(temp_filename, "wb") as f:
             f.write(uploaded_file.read())
 
         st.info("Processing... Please wait")
 
         try:
-            # CALL FASTAPI BACKEND
-            files = {"file": open("temp_video.mp4", "rb")}
-            response = requests.post("http://127.0.0.1:8000/analyze", files=files)
-
-            result = response.json()
+            # DIRECT ANALYSIS (NO BACKEND)
+            result = analyze_video(temp_filename)
 
             st.success("Analysis Complete")
 
-            # ---------------------------
-            # SHOW RESULTS
-            # ---------------------------
+            # SHOW RESULT
             st.subheader("📊 Results")
             st.json(result)
 
-            # ---------------------------
-            # SAVE PLAYER DATA
-            # ---------------------------
+            # SAVE DATA
             save_player_data(player_name, result)
 
+            # DELETE TEMP FILE
+            os.remove(temp_filename)
+
         except Exception as e:
-            st.error(f"Connection error: {e}")
+            st.error(f"Error: {e}")
 
 # ---------------------------
 # PLAYER HISTORY
@@ -60,9 +64,6 @@ if player_name != "":
             arm_angles.append(session.get("arm_angle", 0))
             knee_angles.append(session.get("knee_angle", 0))
 
-        # ---------------------------
-        # GRAPH
-        # ---------------------------
         st.subheader("📈 Performance Trends")
 
         fig, ax = plt.subplots()
